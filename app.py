@@ -4,8 +4,8 @@ import base64
 from PIL import Image
 import io
 
-# --- 1. SETUP ---
-st.set_page_config(page_title="Marina Enclave AI", layout="wide")
+# 1. Setup
+st.set_page_config(page_title="Marina Enclave Move AI", layout="wide")
 
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -13,78 +13,61 @@ except:
     st.error("API Key missing! Add GROQ_API_KEY to Streamlit Secrets.")
     st.stop()
 
-# --- 2. THE 413 FIX (IMAGE OPTIMIZER) ---
-def process_for_groq(uploaded_file):
-    # Open the image
+# 2. The 413 Fix (Force-Shrink Images)
+def process_image(uploaded_file):
     img = Image.open(uploaded_file)
-    # Convert to RGB (removes alpha channel which bulks up size)
     if img.mode != 'RGB':
         img = img.convert('RGB')
-    
-    # Force resize to a max of 800px (AI doesn't need more to see the room)
     img.thumbnail((800, 800)) 
-    
-    # Save with aggressive compression
     buffer = io.BytesIO()
     img.save(buffer, format="JPEG", quality=60, optimize=True)
     return base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-# --- 3. UI ---
-st.title("🏢 Marina Enclave: L-1304 ➡️ I-2103")
-st.sidebar.write("### Tenants: Viaan, Nosh, Delnaz")
+# 3. UI Layout
+st.title("📦 Family Move: L-1304 ➡️ I-2103")
+st.sidebar.info("Tenants: Viaan, Nosh, & Delnaz")
 
-tab1, tab2 = st.tabs(["🚚 Shifting Logistics", "🎨 Interior Design"])
+tab1, tab2 = st.tabs(["💬 Moving Help", "🎨 Design Help"])
 
-# --- TAB 1: LOGISTICS (GROQ/COMPOUND) ---
+# --- TAB 1: JUST TELL GROQ WE NEED HELP ---
 with tab1:
-    st.header("Move Planner")
-    move_input = st.text_area("What are we moving?", placeholder="e.g. 3 beds, fridge, 20 boxes...", key="logistic_text")
+    st.header("Logistics Assistant")
+    user_msg = st.text_input("Ask anything about the move:", placeholder="e.g. How do we start the move?")
     
-    if st.button("Get Move Strategy"):
-        if move_input:
-            with st.spinner("Calculating..."):
-                res = client.chat.completions.create(
-                    model="groq/compound",
-                    messages=[{"role": "user", "content": f"Plan a move from L-1304 to I-2103 in Marina Enclave for Viaan, Nosh, and Delnaz. Items: {move_input}"}]
-                )
-                st.markdown(res.choices[0].message.content)
-        else:
-            st.warning("Input items first!")
+    if st.button("Ask Groq"):
+        with st.spinner("Talking to Groq..."):
+            # System prompt tells Groq the family context automatically
+            response = client.chat.completions.create(
+                model="groq/compound",
+                messages=[
+                    {"role": "system", "content": "The family (Viaan, Nosh, and Delnaz) is moving from Wing L-1304 to I-2103 in Marina Enclave, Mumbai. They need general help and guidance with the move. Be supportive and practical."},
+                    {"role": "user", "content": user_msg if user_msg else "We are moving today, help us out with a plan."}
+                ]
+            )
+            st.markdown(response.choices[0].message.content)
 
-# --- TAB 2: INTERIOR DESIGN (VISION + GENERATION) ---
+# --- TAB 2: INTERIOR DESIGN (Fixed for 413) ---
 with tab2:
-    st.header("Home Designer")
-    room_photo = st.file_uploader("Upload Room Photo", type=['jpg', 'jpeg', 'png'])
+    st.header("Interior Designer")
+    room_photo = st.file_uploader("Upload a photo of the new house", type=['jpg', 'jpeg', 'png'])
 
     if room_photo:
-        st.image(room_photo, caption="Current View", width=400)
+        st.image(room_photo, caption="Wing I View", width=400)
         
-        if st.button("Analyze & Generate Design"):
-            with st.spinner("Optimizing & Analyzing..."):
+        if st.button("Analyze Room Layout"):
+            with st.spinner("Analyzing..."):
                 try:
-                    # Apply the fix
-                    optimized_b64 = process_for_groq(room_photo)
-                    
-                    # Vision Call
+                    optimized_b64 = process_image(room_photo)
                     vision_res = client.chat.completions.create(
                         model="llama-3.2-11b-vision-preview",
                         messages=[{
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": "Analyze this room and suggest a modern layout for Viaan, Nosh, and Delnaz. Be specific about furniture placement."},
+                                {"type": "text", "text": "This is the new house for Viaan, Nosh, and Delnaz. Suggest a modern furniture layout for them."},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{optimized_b64}"}}
                             ]
                         }]
                     )
-                    
-                    analysis = vision_res.choices[0].message.content
-                    st.subheader("AI Design Analysis")
-                    st.write(analysis)
-                    
-                    # Generate Prompt for Image Generation
-                    st.divider()
-                    st.subheader("🖼️ Use this prompt in DALL-E/Midjourney:")
-                    st.code(f"Photorealistic interior design for a Mumbai high-rise apartment, 21st floor, modern style, based on: {analysis[:200]}", language="text")
-                    
+                    st.write(vision_res.choices[0].message.content)
                 except Exception as e:
                     st.error(f"Error: {e}")
